@@ -2,6 +2,10 @@
 
 A Home Assistant custom integration that finds an [Egret NVR TV](https://github.com/daverein/HATVNotifications) Android TV app on your local network and pairs it with this Home Assistant instance — no Long-Lived Access Token to generate and copy, no server address to type on the TV's remote.
 
+[![Open this repository in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=daverein&repository=ha-egretnvrtv&category=integration)
+
+Requires [HACS](https://hacs.xyz/) already installed on your Home Assistant instance — the button opens HACS's "Add custom repository" dialog pre-filled with this repo; you still confirm and hit Download there.
+
 ## What it does
 
 1. Discovers the TV automatically via mDNS/zeroconf (or you can enter its address manually if discovery doesn't find it).
@@ -20,6 +24,8 @@ The TV saves that host/token exactly as if you'd entered them by hand in its own
 ## Installation
 
 ### HACS (custom repository)
+
+Click the badge above (opens HACS's "Add custom repository" dialog pre-filled), or add it by hand:
 
 1. HACS → Integrations → ⋮ → Custom repositories → add this repo's URL, category "Integration".
 2. Install "Egret NVR TV", restart Home Assistant.
