@@ -25,6 +25,14 @@ CONF_COMPANION_DEVICE_NAME = "companion_device_name"
 # to read that resource directly; update both if the app's display name ever changes.
 DEFAULT_COMPANION_DEVICE_NAME_BASE = "Egret NVR TV"
 
+# Whether the TV should subscribe to Frigate's frigate/events MQTT topic directly over the
+# Home Assistant websocket, instead of (or in addition to — though enabling both shows every
+# event twice) a "Notifications for Android TV" blueprint push. Same choice the TV's own
+# setup wizard and Home Assistant settings card already offer; collected here so pairing
+# doesn't leave it at whatever it happened to default to.
+CONF_SUBSCRIBE_TO_FRIGATE_EVENTS = "subscribe_to_frigate_events"
+DEFAULT_SUBSCRIBE_TO_FRIGATE_EVENTS = True
+
 # TV-side HTTP routes (NotificationHttpServer.java), reached over plain HTTP on the local
 # network — see that file's own doc comment for the two-step start/complete exchange.
 PAIR_START_PATH = "/ha_pair/start"

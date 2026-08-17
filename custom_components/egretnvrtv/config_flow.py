@@ -3,9 +3,10 @@
 Pairing exchange (see the TV app's NotificationHttpServer.java for the other side):
 
 1. The TV is either auto-discovered via zeroconf (_egretnvrtv._tcp.local.) or entered
-   manually (host/port). The same form also collects the Frigate MQTT topic prefix, and
-   whether to register the TV as a Home Assistant companion app (plus its device name if
-   so) — everything the TV's own setup wizard would otherwise ask for on-device.
+   manually (host/port). The same form also collects the Frigate MQTT topic prefix, whether
+   to subscribe to Frigate's realtime events over this connection, and whether to register
+   the TV as a Home Assistant companion app (plus its device name if so) — everything the
+   TV's own setup wizard would otherwise ask for on-device.
 2. This flow POSTs to the TV's `/ha_pair/start` — which makes the TV display a short PIN
    on-screen and returns its stable device_id/device_name so this flow can dedupe/title the
    entry without trusting zeroconf TXT records (best-effort and inconsistent across OEM
@@ -13,12 +14,14 @@ Pairing exchange (see the TV app's NotificationHttpServer.java for the other sid
 3. The user reads the PIN off the TV and types it into the form shown here.
 4. This flow mints a fresh Long-Lived Access Token for the instance owner (see
    _async_mint_token below), and POSTs {pin, host, token, mqtt_topic_prefix,
-   register_companion_app, companion_device_name} to the TV's `/ha_pair/complete`. The TV
-   only accepts this if the PIN matches what it's still showing and hasn't expired — that
-   PIN is the entire proof that whoever is submitting this form is physically looking at the
-   right TV, since the pairing endpoint itself has no other auth. On success the TV saves
-   the host/token immediately, then (best-effort, non-fatal if it fails) completes its own
-   existing companion-app registration using that same token, if asked to.
+   subscribe_to_frigate_events, register_companion_app, companion_device_name} to the TV's
+   `/ha_pair/complete`. The TV only accepts this if the PIN matches what it's still showing
+   and hasn't expired — that PIN is the entire proof that whoever is submitting this form is
+   physically looking at the right TV, since the pairing endpoint itself has no other auth.
+   On success the TV saves the host/token immediately (and marks itself, for its own setup
+   wizard's benefit, as answered "this TV is on the local network" — this pairing flow only
+   ever works there), then (best-effort, non-fatal if it fails) completes its own existing
+   companion-app registration using that same token, if asked to.
 """
 from __future__ import annotations
 
@@ -43,10 +46,12 @@ from .const import (
     CONF_DEVICE_NAME,
     CONF_MQTT_TOPIC_PREFIX,
     CONF_REGISTER_COMPANION_APP,
+    CONF_SUBSCRIBE_TO_FRIGATE_EVENTS,
     DEFAULT_COMPANION_DEVICE_NAME_BASE,
     DEFAULT_MQTT_TOPIC_PREFIX,
     DEFAULT_PORT,
     DEFAULT_REGISTER_COMPANION_APP,
+    DEFAULT_SUBSCRIBE_TO_FRIGATE_EVENTS,
     DOMAIN,
     PAIR_COMPLETE_PATH,
     PAIR_START_PATH,
@@ -75,6 +80,7 @@ class EgretNvrTvConfigFlow(ConfigFlow, domain=DOMAIN):
         self._mqtt_topic_prefix: str = DEFAULT_MQTT_TOPIC_PREFIX
         self._register_companion_app: bool = DEFAULT_REGISTER_COMPANION_APP
         self._companion_device_name: str = ""
+        self._subscribe_to_frigate_events: bool = DEFAULT_SUBSCRIBE_TO_FRIGATE_EVENTS
 
     async def async_step_zeroconf(
         self, discovery_info: ZeroconfServiceInfo
@@ -144,6 +150,15 @@ class EgretNvrTvConfigFlow(ConfigFlow, domain=DOMAIN):
                     CONF_MQTT_TOPIC_PREFIX,
                     default=defaults.get(CONF_MQTT_TOPIC_PREFIX, DEFAULT_MQTT_TOPIC_PREFIX),
                 ): str,
+                # Leave unchecked if a "Notifications for Android TV" blueprint is already
+                # pushing to this TV — enabling both shows every event twice, same warning the
+                # TV's own Home Assistant settings card gives for this exact checkbox.
+                vol.Required(
+                    CONF_SUBSCRIBE_TO_FRIGATE_EVENTS,
+                    default=defaults.get(
+                        CONF_SUBSCRIBE_TO_FRIGATE_EVENTS, DEFAULT_SUBSCRIBE_TO_FRIGATE_EVENTS
+                    ),
+                ): bool,
                 vol.Required(
                     CONF_REGISTER_COMPANION_APP,
                     default=defaults.get(
@@ -191,6 +206,7 @@ class EgretNvrTvConfigFlow(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         """POST /ha_pair/start, learn the TV's real identity, and move to the PIN step."""
         self._mqtt_topic_prefix = user_input[CONF_MQTT_TOPIC_PREFIX]
+        self._subscribe_to_frigate_events = user_input[CONF_SUBSCRIBE_TO_FRIGATE_EVENTS]
         self._register_companion_app = user_input[CONF_REGISTER_COMPANION_APP]
         self._companion_device_name = user_input.get(
             CONF_COMPANION_DEVICE_NAME, ""
@@ -236,6 +252,7 @@ class EgretNvrTvConfigFlow(ConfigFlow, domain=DOMAIN):
                         CONF_DEVICE_ID: self._device_id,
                         CONF_DEVICE_NAME: self._device_name,
                         CONF_MQTT_TOPIC_PREFIX: self._mqtt_topic_prefix,
+                        CONF_SUBSCRIBE_TO_FRIGATE_EVENTS: self._subscribe_to_frigate_events,
                         CONF_REGISTER_COMPANION_APP: self._register_companion_app,
                         # Stored so _default_companion_device_name() can steer a later
                         # pairing (a second TV) away from reusing this same name.
@@ -289,6 +306,7 @@ class EgretNvrTvConfigFlow(ConfigFlow, domain=DOMAIN):
                     "host": local_url,
                     "token": token,
                     "mqtt_topic_prefix": self._mqtt_topic_prefix,
+                    "subscribe_to_frigate_events": self._subscribe_to_frigate_events,
                     "register_companion_app": self._register_companion_app,
                     "companion_device_name": self._companion_device_name,
                 },

@@ -6,6 +6,7 @@
         "description": "Found \"{name}\" on your network.",
         "data": {
           "mqtt_topic_prefix": "Frigate MQTT topic prefix (leave default unless you changed it in Frigate's own config)",
+          "subscribe_to_frigate_events": "Subscribe to Frigate events (leave unchecked if a \"Notifications for Android TV\" blueprint already pushes to this TV — enabling both shows every event twice)",
           "register_companion_app": "Register as a Home Assistant companion app (lets it show up as a notify target in blueprints)",
           "companion_device_name": "Companion app device name (only used if registering above)"
         }
@@ -17,6 +18,7 @@
           "host": "Host or IP address",
           "port": "Port",
           "mqtt_topic_prefix": "Frigate MQTT topic prefix (leave default unless you changed it in Frigate's own config)",
+          "subscribe_to_frigate_events": "Subscribe to Frigate events (leave unchecked if a \"Notifications for Android TV\" blueprint already pushes to this TV — enabling both shows every event twice)",
           "register_companion_app": "Register as a Home Assistant companion app (lets it show up as a notify target in blueprints)",
           "companion_device_name": "Companion app device name (only used if registering above)"
         }
