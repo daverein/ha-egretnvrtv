@@ -34,6 +34,10 @@ Click the badge above (opens HACS's "Add custom repository" dialog pre-filled), 
 
 Copy `custom_components/egretnvrtv` into your Home Assistant `custom_components` directory and restart.
 
+### Icon
+
+The egret icon (`custom_components/egretnvrtv/brand/`) uses Home Assistant's inline custom-integration brand images, supported since HA 2026.3 — on older versions, or older HACS releases that haven't picked up support for that mechanism yet, you'll see a generic/missing icon placeholder instead. Harmless either way; doesn't affect pairing.
+
 ## Setup
 
 Settings → Devices & Services — a discovered TV appears automatically ("Set up" prompt); otherwise use **Add Integration** → "Egret NVR TV" and enter its address manually. Follow the on-screen steps described above.
