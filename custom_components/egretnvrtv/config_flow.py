@@ -89,9 +89,25 @@ class EgretNvrTvConfigFlow(ConfigFlow, domain=DOMAIN):
         self._host = discovery_info.host
         self._port = discovery_info.port or DEFAULT_PORT
 
-        # Best-effort early dedup so re-discovering an already-paired TV (mDNS re-announces
-        # periodically) doesn't keep popping a "new device found" notification — properties
-        # are whatever the TV's TXT record happened to include, not trusted beyond this.
+        # The TV advertises no TXT records (see HaIntegrationAdvertiser's own doc comment —
+        # OEM TXT-record support is inconsistent), so there's no reliable id available yet at
+        # this point; the real one only comes back from /ha_pair/start, and this step must NOT
+        # call that yet — it would pop a pairing PIN on the TV's screen just from being
+        # glimpsed over mDNS, before the user has shown any intent to pair. So an already-paired
+        # TV is recognized here by host/port match against existing entries' saved data instead
+        # of by unique_id (which, for an existing entry, is the *real* device_id set later in
+        # _async_start_pairing() — comparing that against this step's host:port-based guess
+        # would never match, which is exactly what let an already-configured TV keep re-showing
+        # as "newly discovered" on every mDNS re-announce). A coincidentally reused IP after a
+        # TV is removed/replaced is the one false-negative this can't catch — low-stakes, and
+        # manual "Add Integration" entry still works normally for it.
+        for entry in self.hass.config_entries.async_entries(DOMAIN):
+            if entry.data.get(CONF_HOST) == self._host and entry.data.get(CONF_PORT) == self._port:
+                return self.async_abort(reason="already_configured")
+
+        # Best-effort early dedup for *in-progress* flows (e.g. this same not-yet-configured TV
+        # discovered twice before the user acts on either) — properties are whatever the TV's
+        # TXT record happened to include, not trusted beyond this.
         early_id = discovery_info.properties.get(CONF_DEVICE_ID) or f"{self._host}:{self._port}"
         await self.async_set_unique_id(str(early_id))
         self._abort_if_unique_id_configured(
