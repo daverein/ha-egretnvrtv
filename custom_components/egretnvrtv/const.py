@@ -20,6 +20,11 @@ CONF_REGISTER_COMPANION_APP = "register_companion_app"
 DEFAULT_REGISTER_COMPANION_APP = True
 CONF_COMPANION_DEVICE_NAME = "companion_device_name"
 
+# Mirrors the Android app's own R.string.app_name (its default companion device name when
+# none has been set on the TV yet) — kept as a plain constant here since this side has no way
+# to read that resource directly; update both if the app's display name ever changes.
+DEFAULT_COMPANION_DEVICE_NAME_BASE = "Egret NVR TV"
+
 # TV-side HTTP routes (NotificationHttpServer.java), reached over plain HTTP on the local
 # network — see that file's own doc comment for the two-step start/complete exchange.
 PAIR_START_PATH = "/ha_pair/start"

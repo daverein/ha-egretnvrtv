@@ -43,6 +43,7 @@ from .const import (
     CONF_DEVICE_NAME,
     CONF_MQTT_TOPIC_PREFIX,
     CONF_REGISTER_COMPANION_APP,
+    DEFAULT_COMPANION_DEVICE_NAME_BASE,
     DEFAULT_MQTT_TOPIC_PREFIX,
     DEFAULT_PORT,
     DEFAULT_REGISTER_COMPANION_APP,
@@ -105,7 +106,7 @@ class EgretNvrTvConfigFlow(ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="zeroconf_confirm",
             data_schema=self._confirm_schema(
-                {CONF_COMPANION_DEVICE_NAME: self._device_name or ""}
+                {CONF_COMPANION_DEVICE_NAME: self._default_companion_device_name()}
             ),
             description_placeholders={"name": self._device_name or self._host or ""},
         )
@@ -127,7 +128,12 @@ class EgretNvrTvConfigFlow(ConfigFlow, domain=DOMAIN):
                 )
             return result
 
-        return self.async_show_form(step_id="user", data_schema=self._user_schema())
+        return self.async_show_form(
+            step_id="user",
+            data_schema=self._user_schema(
+                {CONF_COMPANION_DEVICE_NAME: self._default_companion_device_name()}
+            ),
+        )
 
     @staticmethod
     def _confirm_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
@@ -164,15 +170,31 @@ class EgretNvrTvConfigFlow(ConfigFlow, domain=DOMAIN):
         schema.update(cls._confirm_schema(defaults).schema)
         return vol.Schema(schema)
 
+    def _default_companion_device_name(self) -> str:
+        """Suggests "Egret NVR TV", or "Egret NVR TV 2"/"3"/... if that name is already
+        used by another TV paired through this integration — so two TVs don't silently
+        default to registering as the same Home Assistant companion device."""
+        existing_names = {
+            entry.data.get(CONF_COMPANION_DEVICE_NAME)
+            for entry in self.hass.config_entries.async_entries(DOMAIN)
+            if entry.data.get(CONF_COMPANION_DEVICE_NAME)
+        }
+        if DEFAULT_COMPANION_DEVICE_NAME_BASE not in existing_names:
+            return DEFAULT_COMPANION_DEVICE_NAME_BASE
+        suffix = 2
+        while f"{DEFAULT_COMPANION_DEVICE_NAME_BASE} {suffix}" in existing_names:
+            suffix += 1
+        return f"{DEFAULT_COMPANION_DEVICE_NAME_BASE} {suffix}"
+
     async def _async_start_pairing(
         self, user_input: dict[str, Any], errors: dict[str, str] | None = None
     ) -> ConfigFlowResult:
         """POST /ha_pair/start, learn the TV's real identity, and move to the PIN step."""
         self._mqtt_topic_prefix = user_input[CONF_MQTT_TOPIC_PREFIX]
         self._register_companion_app = user_input[CONF_REGISTER_COMPANION_APP]
-        self._companion_device_name = user_input.get(CONF_COMPANION_DEVICE_NAME, "") or (
-            self._device_name or self._host or ""
-        )
+        self._companion_device_name = user_input.get(
+            CONF_COMPANION_DEVICE_NAME, ""
+        ) or self._default_companion_device_name()
         session = async_get_clientsession(self.hass)
         try:
             async with session.post(
@@ -214,6 +236,12 @@ class EgretNvrTvConfigFlow(ConfigFlow, domain=DOMAIN):
                         CONF_DEVICE_ID: self._device_id,
                         CONF_DEVICE_NAME: self._device_name,
                         CONF_MQTT_TOPIC_PREFIX: self._mqtt_topic_prefix,
+                        CONF_REGISTER_COMPANION_APP: self._register_companion_app,
+                        # Stored so _default_companion_device_name() can steer a later
+                        # pairing (a second TV) away from reusing this same name.
+                        CONF_COMPANION_DEVICE_NAME: self._companion_device_name
+                        if self._register_companion_app
+                        else None,
                     },
                 )
             if errors.get("base") == ERROR_INVALID_PIN:
