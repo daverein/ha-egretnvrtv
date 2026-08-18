@@ -33,6 +33,38 @@ DEFAULT_COMPANION_DEVICE_NAME_BASE = "Egret NVR TV"
 CONF_SUBSCRIBE_TO_FRIGATE_EVENTS = "subscribe_to_frigate_events"
 DEFAULT_SUBSCRIBE_TO_FRIGATE_EVENTS = True
 
+# Alert appearance — mirrors the TV's own "Alert Configuration" card/wizard step
+# (NotificationConfigDialog.java, NotificationDefaultsPreferences.java). Label strings match
+# that dialog's own option text exactly; the TV side maps them back to its internal
+# position/size integer encoding (see NotificationHttpServer's own POSITION_VALUES/SIZE_VALUES
+# lookup, kept in sync with OverlayController's gravityFor()/textSizeSp()).
+CONF_ALERT_POSITION = "alert_position"
+ALERT_POSITION_OPTIONS = ["Bottom Right", "Bottom Left", "Top Right", "Top Left"]
+DEFAULT_ALERT_POSITION = "Bottom Right"
+
+CONF_ALERT_SIZE = "alert_size"
+ALERT_SIZE_OPTIONS = ["Small", "Medium", "Large", "Max"]
+DEFAULT_ALERT_SIZE = "Medium"
+
+CONF_ALERT_DURATION_SECONDS = "alert_duration_seconds"
+ALERT_DURATION_OPTIONS = [10, 15, 20, 25, 30]
+DEFAULT_ALERT_DURATION_SECONDS = 20
+
+# Whether a clip plays inline (muted) right in the alert popup, vs. just a snapshot + play
+# icon that opens the full-screen player on demand.
+CONF_PLAY_CLIPS_INLINE = "play_clips_inline"
+DEFAULT_PLAY_CLIPS_INLINE = False
+
+# History — mirrors HistoryPreferences.java. Saving *every* notification (rather than only
+# ones carrying a stable "[[id=...]]"/event id) is off by default on the TV itself; exposed
+# here so it doesn't need a follow-up trip to Settings after pairing.
+CONF_SAVE_ALL_NOTIFICATIONS = "save_all_notifications"
+DEFAULT_SAVE_ALL_NOTIFICATIONS = False
+
+CONF_HISTORY_SIZE = "history_size"
+HISTORY_SIZE_OPTIONS = [100, 250, 500, 750, 1000]
+DEFAULT_HISTORY_SIZE = 100
+
 # TV-side HTTP routes (NotificationHttpServer.java), reached over plain HTTP on the local
 # network — see that file's own doc comment for the two-step start/complete exchange.
 PAIR_START_PATH = "/ha_pair/start"

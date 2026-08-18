@@ -3,10 +3,11 @@
 Pairing exchange (see the TV app's NotificationHttpServer.java for the other side):
 
 1. The TV is either auto-discovered via zeroconf (_egretnvrtv._tcp.local.) or entered
-   manually (host/port). The same form also collects the Frigate MQTT topic prefix, whether
-   to subscribe to Frigate's realtime events over this connection, and whether to register
-   the TV as a Home Assistant companion app (plus its device name if so) — everything the
-   TV's own setup wizard would otherwise ask for on-device.
+   manually (host/port). The same form also collects everything the TV's own setup wizard
+   would otherwise ask for on-device: the Frigate MQTT topic prefix, whether to subscribe to
+   Frigate's realtime events over this connection, whether to register as a Home Assistant
+   companion app (plus its device name if so), default alert position/size/duration, whether
+   clips play inline in the popup, and history retention (save-all + how many to keep).
 2. This flow POSTs to the TV's `/ha_pair/start` — which makes the TV display a short PIN
    on-screen and returns its stable device_id/device_name so this flow can dedupe/title the
    entry without trusting zeroconf TXT records (best-effort and inconsistent across OEM
@@ -14,8 +15,10 @@ Pairing exchange (see the TV app's NotificationHttpServer.java for the other sid
 3. The user reads the PIN off the TV and types it into the form shown here.
 4. This flow mints a fresh Long-Lived Access Token for the instance owner (see
    _async_mint_token below), and POSTs {pin, host, token, mqtt_topic_prefix,
-   subscribe_to_frigate_events, register_companion_app, companion_device_name} to the TV's
-   `/ha_pair/complete`. The TV only accepts this if the PIN matches what it's still showing
+   subscribe_to_frigate_events, register_companion_app, companion_device_name,
+   alert_position, alert_size, alert_duration_seconds, play_clips_inline,
+   save_all_notifications, history_size} to the TV's `/ha_pair/complete`. The TV only
+   accepts this if the PIN matches what it's still showing
    and hasn't expired — that PIN is the entire proof that whoever is submitting this form is
    physically looking at the right TV, since the pairing endpoint itself has no other auth.
    On success the TV saves the host/token immediately (and marks itself, for its own setup
@@ -41,18 +44,34 @@ from homeassistant.helpers.service_info.zeroconf import ZeroconfServiceInfo
 
 from .const import (
     ACCESS_TOKEN_LIFESPAN_DAYS,
+    ALERT_DURATION_OPTIONS,
+    ALERT_POSITION_OPTIONS,
+    ALERT_SIZE_OPTIONS,
+    CONF_ALERT_DURATION_SECONDS,
+    CONF_ALERT_POSITION,
+    CONF_ALERT_SIZE,
     CONF_COMPANION_DEVICE_NAME,
     CONF_DEVICE_ID,
     CONF_DEVICE_NAME,
+    CONF_HISTORY_SIZE,
     CONF_MQTT_TOPIC_PREFIX,
+    CONF_PLAY_CLIPS_INLINE,
     CONF_REGISTER_COMPANION_APP,
+    CONF_SAVE_ALL_NOTIFICATIONS,
     CONF_SUBSCRIBE_TO_FRIGATE_EVENTS,
+    DEFAULT_ALERT_DURATION_SECONDS,
+    DEFAULT_ALERT_POSITION,
+    DEFAULT_ALERT_SIZE,
     DEFAULT_COMPANION_DEVICE_NAME_BASE,
+    DEFAULT_HISTORY_SIZE,
     DEFAULT_MQTT_TOPIC_PREFIX,
+    DEFAULT_PLAY_CLIPS_INLINE,
     DEFAULT_PORT,
     DEFAULT_REGISTER_COMPANION_APP,
+    DEFAULT_SAVE_ALL_NOTIFICATIONS,
     DEFAULT_SUBSCRIBE_TO_FRIGATE_EVENTS,
     DOMAIN,
+    HISTORY_SIZE_OPTIONS,
     PAIR_COMPLETE_PATH,
     PAIR_START_PATH,
     REQUEST_TIMEOUT_SECONDS,
@@ -81,6 +100,12 @@ class EgretNvrTvConfigFlow(ConfigFlow, domain=DOMAIN):
         self._register_companion_app: bool = DEFAULT_REGISTER_COMPANION_APP
         self._companion_device_name: str = ""
         self._subscribe_to_frigate_events: bool = DEFAULT_SUBSCRIBE_TO_FRIGATE_EVENTS
+        self._alert_position: str = DEFAULT_ALERT_POSITION
+        self._alert_size: str = DEFAULT_ALERT_SIZE
+        self._alert_duration_seconds: int = DEFAULT_ALERT_DURATION_SECONDS
+        self._play_clips_inline: bool = DEFAULT_PLAY_CLIPS_INLINE
+        self._save_all_notifications: bool = DEFAULT_SAVE_ALL_NOTIFICATIONS
+        self._history_size: int = DEFAULT_HISTORY_SIZE
 
     async def async_step_zeroconf(
         self, discovery_info: ZeroconfServiceInfo
@@ -188,6 +213,37 @@ class EgretNvrTvConfigFlow(ConfigFlow, domain=DOMAIN):
                     CONF_COMPANION_DEVICE_NAME,
                     default=defaults.get(CONF_COMPANION_DEVICE_NAME, ""),
                 ): str,
+                # Alert appearance — same options as the TV's own "Alert Configuration" card,
+                # collected here so there's no follow-up trip to Settings after pairing.
+                vol.Required(
+                    CONF_ALERT_POSITION,
+                    default=defaults.get(CONF_ALERT_POSITION, DEFAULT_ALERT_POSITION),
+                ): vol.In(ALERT_POSITION_OPTIONS),
+                vol.Required(
+                    CONF_ALERT_SIZE,
+                    default=defaults.get(CONF_ALERT_SIZE, DEFAULT_ALERT_SIZE),
+                ): vol.In(ALERT_SIZE_OPTIONS),
+                vol.Required(
+                    CONF_ALERT_DURATION_SECONDS,
+                    default=defaults.get(
+                        CONF_ALERT_DURATION_SECONDS, DEFAULT_ALERT_DURATION_SECONDS
+                    ),
+                ): vol.In(ALERT_DURATION_OPTIONS),
+                vol.Required(
+                    CONF_PLAY_CLIPS_INLINE,
+                    default=defaults.get(CONF_PLAY_CLIPS_INLINE, DEFAULT_PLAY_CLIPS_INLINE),
+                ): bool,
+                # History — same options as the TV's own History card.
+                vol.Required(
+                    CONF_SAVE_ALL_NOTIFICATIONS,
+                    default=defaults.get(
+                        CONF_SAVE_ALL_NOTIFICATIONS, DEFAULT_SAVE_ALL_NOTIFICATIONS
+                    ),
+                ): bool,
+                vol.Required(
+                    CONF_HISTORY_SIZE,
+                    default=defaults.get(CONF_HISTORY_SIZE, DEFAULT_HISTORY_SIZE),
+                ): vol.In(HISTORY_SIZE_OPTIONS),
             }
         )
 
@@ -227,6 +283,12 @@ class EgretNvrTvConfigFlow(ConfigFlow, domain=DOMAIN):
         self._companion_device_name = user_input.get(
             CONF_COMPANION_DEVICE_NAME, ""
         ) or self._default_companion_device_name()
+        self._alert_position = user_input[CONF_ALERT_POSITION]
+        self._alert_size = user_input[CONF_ALERT_SIZE]
+        self._alert_duration_seconds = user_input[CONF_ALERT_DURATION_SECONDS]
+        self._play_clips_inline = user_input[CONF_PLAY_CLIPS_INLINE]
+        self._save_all_notifications = user_input[CONF_SAVE_ALL_NOTIFICATIONS]
+        self._history_size = user_input[CONF_HISTORY_SIZE]
         session = async_get_clientsession(self.hass)
         try:
             async with session.post(
@@ -275,6 +337,12 @@ class EgretNvrTvConfigFlow(ConfigFlow, domain=DOMAIN):
                         CONF_COMPANION_DEVICE_NAME: self._companion_device_name
                         if self._register_companion_app
                         else None,
+                        CONF_ALERT_POSITION: self._alert_position,
+                        CONF_ALERT_SIZE: self._alert_size,
+                        CONF_ALERT_DURATION_SECONDS: self._alert_duration_seconds,
+                        CONF_PLAY_CLIPS_INLINE: self._play_clips_inline,
+                        CONF_SAVE_ALL_NOTIFICATIONS: self._save_all_notifications,
+                        CONF_HISTORY_SIZE: self._history_size,
                     },
                 )
             if errors.get("base") == ERROR_INVALID_PIN:
@@ -325,6 +393,12 @@ class EgretNvrTvConfigFlow(ConfigFlow, domain=DOMAIN):
                     "subscribe_to_frigate_events": self._subscribe_to_frigate_events,
                     "register_companion_app": self._register_companion_app,
                     "companion_device_name": self._companion_device_name,
+                    "alert_position": self._alert_position,
+                    "alert_size": self._alert_size,
+                    "alert_duration_seconds": self._alert_duration_seconds,
+                    "play_clips_inline": self._play_clips_inline,
+                    "save_all_notifications": self._save_all_notifications,
+                    "history_size": self._history_size,
                 },
                 timeout=aiohttp.ClientTimeout(total=REQUEST_TIMEOUT_SECONDS),
             ) as resp:
