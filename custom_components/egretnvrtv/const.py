@@ -65,6 +65,49 @@ CONF_HISTORY_SIZE = "history_size"
 HISTORY_SIZE_OPTIONS = [100, 250, 500, 750, 1000]
 DEFAULT_HISTORY_SIZE = 100
 
+# The per-config-entry Home Assistant webhook this integration owns, generated during
+# pairing and handed to the TV in the /ha_pair/complete payload — see __init__.py. Distinct
+# from the TV's own separately-obtained mobile_app webhook_id (CONF_COMPANION_DEVICE_NAME
+# above); this one is only ever used to push diagnostic sensor updates (sensor.py/
+# binary_sensor.py), never notifications.
+CONF_WEBHOOK_ID = "webhook_id"
+
+# Field names inside the diagnostics webhook payload a paired TV posts to (see
+# MobileAppDiagnosticSensors.java's integration-routing branch in the app's own repo for the
+# other side of this contract) — deliberately a flatter, simpler shape than mobile_app's own
+# register_sensor/update_sensor_states protocol, since this integration owns both ends and
+# has no need to speak that generic contract. Every field is optional in any single POST; the
+# webhook handler merges whatever's present into this entry's currently-known values rather
+# than requiring a full resend each time.
+ATTR_LAST_NOTIFICATION_AT = "last_notification_at"
+ATTR_LAST_NOTIFICATION_TITLE = "last_notification_title"
+ATTR_LAST_CLIP_PLAYED_AT = "last_clip_played_at"
+ATTR_LAST_CLIP_URL = "last_clip_url"
+ATTR_APP_VERSION = "app_version"
+ATTR_HOME_ASSISTANT_CONNECTED = "home_assistant_connected"
+ATTR_FRIGATE_CONNECTED = "frigate_connected"
+ATTR_OVERLAY_PERMISSION_GRANTED = "overlay_permission_granted"
+ATTR_NOTIFICATION_SERVER_RUNNING = "notification_server_running"
+
+KNOWN_DIAGNOSTIC_FIELDS = (
+    ATTR_LAST_NOTIFICATION_AT,
+    ATTR_LAST_NOTIFICATION_TITLE,
+    ATTR_LAST_CLIP_PLAYED_AT,
+    ATTR_LAST_CLIP_URL,
+    ATTR_APP_VERSION,
+    ATTR_HOME_ASSISTANT_CONNECTED,
+    ATTR_FRIGATE_CONNECTED,
+    ATTR_OVERLAY_PERMISSION_GRANTED,
+    ATTR_NOTIFICATION_SERVER_RUNNING,
+)
+
+
+def signal_update(entry_id: str) -> str:
+    """Dispatcher signal fired whenever a paired TV's diagnostics webhook delivers new data
+    for that config entry — sensor.py/binary_sensor.py entities listen for their own entry's
+    signal to know when to re-read the shared values dict and push a new state."""
+    return f"{DOMAIN}_update_{entry_id}"
+
 # TV-side HTTP routes (NotificationHttpServer.java), reached over plain HTTP on the local
 # network — see that file's own doc comment for the two-step start/complete exchange.
 PAIR_START_PATH = "/ha_pair/start"

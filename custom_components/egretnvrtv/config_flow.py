@@ -44,6 +44,7 @@ import aiohttp
 import voluptuous as vol
 
 from homeassistant.auth.models import TOKEN_TYPE_LONG_LIVED_ACCESS_TOKEN
+from homeassistant.components import webhook
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
@@ -67,6 +68,7 @@ from .const import (
     CONF_REGISTER_COMPANION_APP,
     CONF_SAVE_ALL_NOTIFICATIONS,
     CONF_SUBSCRIBE_TO_FRIGATE_EVENTS,
+    CONF_WEBHOOK_ID,
     DEFAULT_ALERT_DURATION_SECONDS,
     DEFAULT_ALERT_POSITION,
     DEFAULT_ALERT_SIZE,
@@ -114,6 +116,7 @@ class EgretNvrTvConfigFlow(ConfigFlow, domain=DOMAIN):
         self._play_clips_inline: bool = DEFAULT_PLAY_CLIPS_INLINE
         self._save_all_notifications: bool = DEFAULT_SAVE_ALL_NOTIFICATIONS
         self._history_size: int = DEFAULT_HISTORY_SIZE
+        self._webhook_id: str | None = None
 
     async def async_step_zeroconf(
         self, discovery_info: ZeroconfServiceInfo
@@ -360,6 +363,7 @@ class EgretNvrTvConfigFlow(ConfigFlow, domain=DOMAIN):
                         CONF_PORT: self._port,
                         CONF_DEVICE_ID: self._device_id,
                         CONF_DEVICE_NAME: self._device_name,
+                        CONF_WEBHOOK_ID: self._webhook_id,
                         CONF_MQTT_TOPIC_PREFIX: self._mqtt_topic_prefix,
                         CONF_SUBSCRIBE_TO_FRIGATE_EVENTS: self._subscribe_to_frigate_events,
                         CONF_REGISTER_COMPANION_APP: self._register_companion_app,
@@ -412,6 +416,13 @@ class EgretNvrTvConfigFlow(ConfigFlow, domain=DOMAIN):
             _LOGGER.error("Could not create a Home Assistant access token for the TV: %s", err)
             return {"base": ERROR_CANNOT_CONNECT}
 
+        # Generated once and reused across retries (e.g. a mistyped PIN redisplaying this
+        # step) rather than freshly per attempt — nothing yet holds a stale copy of an earlier
+        # id to clean up, since async_setup_entry() is what actually registers a webhook_id
+        # with Home Assistant, and that only ever runs once pairing has fully succeeded.
+        if self._webhook_id is None:
+            self._webhook_id = webhook.async_generate_id()
+
         session = async_get_clientsession(self.hass)
         try:
             async with session.post(
@@ -420,6 +431,7 @@ class EgretNvrTvConfigFlow(ConfigFlow, domain=DOMAIN):
                     "pin": pin,
                     "host": local_url,
                     "token": token,
+                    "webhook_id": self._webhook_id,
                     "mqtt_topic_prefix": self._mqtt_topic_prefix,
                     "subscribe_to_frigate_events": self._subscribe_to_frigate_events,
                     "register_companion_app": self._register_companion_app,
