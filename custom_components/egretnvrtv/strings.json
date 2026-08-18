@@ -30,8 +30,8 @@
           "alert_position": "Alert position on screen",
           "alert_size": "Alert text/image size",
           "alert_duration_seconds": "Alert duration (seconds)",
-          "play_clips_inline": "Play video clips inline in the alert popup (instead of full-screen)",
-          "save_all_notifications": "Save every notification to history (not just ones with a stable event ID)",
+          "play_clips_inline": "Play video clips inline in the alert popup (instead of full-screen). Pressing arrow up will switch to fullscreen during playback",
+          "save_all_notifications": "Save every notification to history (not just ones with a stable event ID that Frigate provides)",
           "history_size": "Notification history size to keep"
         }
       },
