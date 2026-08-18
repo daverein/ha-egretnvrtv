@@ -3,28 +3,36 @@
 Pairing exchange (see the TV app's NotificationHttpServer.java for the other side):
 
 1. The TV is either auto-discovered via zeroconf (_egretnvrtv._tcp.local.) or entered
-   manually (host/port). The same form also collects everything the TV's own setup wizard
-   would otherwise ask for on-device: the Frigate MQTT topic prefix, whether to subscribe to
-   Frigate's realtime events over this connection, whether to register as a Home Assistant
-   companion app (plus its device name if so), default alert position/size/duration, whether
-   clips play inline in the popup, and history retention (save-all + how many to keep).
-2. This flow POSTs to the TV's `/ha_pair/start` — which makes the TV display a short PIN
-   on-screen and returns its stable device_id/device_name so this flow can dedupe/title the
-   entry without trusting zeroconf TXT records (best-effort and inconsistent across OEM
-   Android TV builds).
-3. The user reads the PIN off the TV and types it into the form shown here.
-4. This flow mints a fresh Long-Lived Access Token for the instance owner (see
+   manually (host/port) — the "Connect" screen (zeroconf_confirm/user). Both collect the
+   Frigate MQTT topic prefix, whether to subscribe to Frigate's realtime events over this
+   connection, and whether to register as a Home Assistant companion app (plus its device
+   name if so).
+2. The "Alert & History" screen (alert_settings) collects default alert position/size/
+   duration, whether clips play inline in the popup, and history retention (save-all + how
+   many to keep) — split into its own screen rather than piled onto the Connect screen, so
+   neither one is an overwhelming wall of fields. Everything the TV's own setup wizard would
+   otherwise ask for on-device ends up collected across these two screens.
+3. Submitting alert_settings is what actually POSTs to the TV's `/ha_pair/start` — which
+   makes the TV display a short PIN on-screen and returns its stable device_id/device_name so
+   this flow can dedupe/title the entry without trusting zeroconf TXT records (best-effort
+   and inconsistent across OEM Android TV builds). Deliberately not triggered any earlier
+   (e.g. right after the Connect screen) — every field across both screens is collected
+   *before* the TV is ever contacted, so nothing pops a PIN on the TV's screen until the user
+   has answered everything and there's exactly one /ha_pair/complete payload to send, instead
+   of an initial one plus a follow-up settings update that could fail on its own.
+4. The user reads the PIN off the TV and types it into the form shown here (async_step_pin).
+5. This flow mints a fresh Long-Lived Access Token for the instance owner (see
    _async_mint_token below), and POSTs {pin, host, token, mqtt_topic_prefix,
    subscribe_to_frigate_events, register_companion_app, companion_device_name,
    alert_position, alert_size, alert_duration_seconds, play_clips_inline,
-   save_all_notifications, history_size} to the TV's `/ha_pair/complete`. The TV only
-   accepts this if the PIN matches what it's still showing
-   and hasn't expired — that PIN is the entire proof that whoever is submitting this form is
-   physically looking at the right TV, since the pairing endpoint itself has no other auth.
-   On success the TV saves the host/token immediately (and marks itself, for its own setup
-   wizard's benefit, as answered "this TV is on the local network" — this pairing flow only
-   ever works there), then (best-effort, non-fatal if it fails) completes its own existing
-   companion-app registration using that same token, if asked to.
+   save_all_notifications, history_size} to the TV's `/ha_pair/complete`. The TV only accepts
+   this if the PIN matches what it's still showing and hasn't expired — that PIN is the
+   entire proof that whoever is submitting this form is physically looking at the right TV,
+   since the pairing endpoint itself has no other auth. On success the TV saves the
+   host/token immediately (and marks itself, for its own setup wizard's benefit, as answered
+   "this TV is on the local network" — this pairing flow only ever works there), then
+   (best-effort, non-fatal if it fails) completes its own existing companion-app registration
+   using that same token, if asked to.
 """
 from __future__ import annotations
 
@@ -146,13 +154,14 @@ class EgretNvrTvConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_zeroconf_confirm(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Confirm pairing with a zeroconf-discovered TV and collect setup choices."""
+        """Confirm pairing with a zeroconf-discovered TV and collect connection choices."""
         if user_input is not None:
-            return await self._async_start_pairing(user_input)
+            self._capture_connect_input(user_input)
+            return await self.async_step_alert_settings()
 
         return self.async_show_form(
             step_id="zeroconf_confirm",
-            data_schema=self._confirm_schema(
+            data_schema=self._connect_schema(
                 {CONF_COMPANION_DEVICE_NAME: self._default_companion_device_name()}
             ),
             description_placeholders={"name": self._device_name or self._host or ""},
@@ -162,18 +171,11 @@ class EgretNvrTvConfigFlow(ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Handle manual entry, for a TV that wasn't auto-discovered on the network."""
-        errors: dict[str, str] = {}
         if user_input is not None:
             self._host = user_input[CONF_HOST]
             self._port = user_input[CONF_PORT]
-            result = await self._async_start_pairing(user_input, errors=errors)
-            if errors:
-                return self.async_show_form(
-                    step_id="user",
-                    data_schema=self._user_schema(user_input),
-                    errors=errors,
-                )
-            return result
+            self._capture_connect_input(user_input)
+            return await self.async_step_alert_settings()
 
         return self.async_show_form(
             step_id="user",
@@ -182,8 +184,44 @@ class EgretNvrTvConfigFlow(ConfigFlow, domain=DOMAIN):
             ),
         )
 
+    def _capture_connect_input(self, user_input: dict[str, Any]) -> None:
+        self._mqtt_topic_prefix = user_input[CONF_MQTT_TOPIC_PREFIX]
+        self._subscribe_to_frigate_events = user_input[CONF_SUBSCRIBE_TO_FRIGATE_EVENTS]
+        self._register_companion_app = user_input[CONF_REGISTER_COMPANION_APP]
+        self._companion_device_name = user_input.get(
+            CONF_COMPANION_DEVICE_NAME, ""
+        ) or self._default_companion_device_name()
+
+    async def async_step_alert_settings(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Collect alert appearance and history settings, then start pairing.
+
+        Submitting this step (not the Connect screen) is what actually contacts the TV — see
+        this module's own doc comment for why that's deliberate.
+        """
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            self._alert_position = user_input[CONF_ALERT_POSITION]
+            self._alert_size = user_input[CONF_ALERT_SIZE]
+            self._alert_duration_seconds = user_input[CONF_ALERT_DURATION_SECONDS]
+            self._play_clips_inline = user_input[CONF_PLAY_CLIPS_INLINE]
+            self._save_all_notifications = user_input[CONF_SAVE_ALL_NOTIFICATIONS]
+            self._history_size = user_input[CONF_HISTORY_SIZE]
+
+            errors = await self._async_start_pairing()
+            if not errors:
+                return await self.async_step_pin()
+
+        return self.async_show_form(
+            step_id="alert_settings",
+            data_schema=self._alert_settings_schema(user_input),
+            errors=errors,
+            description_placeholders={"name": self._device_name or self._host or ""},
+        )
+
     @staticmethod
-    def _confirm_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
+    def _connect_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
         defaults = defaults or {}
         return vol.Schema(
             {
@@ -213,6 +251,14 @@ class EgretNvrTvConfigFlow(ConfigFlow, domain=DOMAIN):
                     CONF_COMPANION_DEVICE_NAME,
                     default=defaults.get(CONF_COMPANION_DEVICE_NAME, ""),
                 ): str,
+            }
+        )
+
+    @staticmethod
+    def _alert_settings_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
+        defaults = defaults or {}
+        return vol.Schema(
+            {
                 # Alert appearance — same options as the TV's own "Alert Configuration" card,
                 # collected here so there's no follow-up trip to Settings after pairing.
                 vol.Required(
@@ -254,7 +300,7 @@ class EgretNvrTvConfigFlow(ConfigFlow, domain=DOMAIN):
             vol.Required(CONF_HOST, default=defaults.get(CONF_HOST, "")): str,
             vol.Required(CONF_PORT, default=defaults.get(CONF_PORT, DEFAULT_PORT)): int,
         }
-        schema.update(cls._confirm_schema(defaults).schema)
+        schema.update(cls._connect_schema(defaults).schema)
         return vol.Schema(schema)
 
     def _default_companion_device_name(self) -> str:
@@ -273,22 +319,10 @@ class EgretNvrTvConfigFlow(ConfigFlow, domain=DOMAIN):
             suffix += 1
         return f"{DEFAULT_COMPANION_DEVICE_NAME_BASE} {suffix}"
 
-    async def _async_start_pairing(
-        self, user_input: dict[str, Any], errors: dict[str, str] | None = None
-    ) -> ConfigFlowResult:
-        """POST /ha_pair/start, learn the TV's real identity, and move to the PIN step."""
-        self._mqtt_topic_prefix = user_input[CONF_MQTT_TOPIC_PREFIX]
-        self._subscribe_to_frigate_events = user_input[CONF_SUBSCRIBE_TO_FRIGATE_EVENTS]
-        self._register_companion_app = user_input[CONF_REGISTER_COMPANION_APP]
-        self._companion_device_name = user_input.get(
-            CONF_COMPANION_DEVICE_NAME, ""
-        ) or self._default_companion_device_name()
-        self._alert_position = user_input[CONF_ALERT_POSITION]
-        self._alert_size = user_input[CONF_ALERT_SIZE]
-        self._alert_duration_seconds = user_input[CONF_ALERT_DURATION_SECONDS]
-        self._play_clips_inline = user_input[CONF_PLAY_CLIPS_INLINE]
-        self._save_all_notifications = user_input[CONF_SAVE_ALL_NOTIFICATIONS]
-        self._history_size = user_input[CONF_HISTORY_SIZE]
+    async def _async_start_pairing(self) -> dict[str, str]:
+        """POST /ha_pair/start and learn the TV's real identity. Returns a form errors dict
+        (empty on success) — the caller (async_step_alert_settings) decides what to do with it,
+        same pattern _async_finish_pairing()/async_step_pin() already use below."""
         session = async_get_clientsession(self.hass)
         try:
             async with session.post(
@@ -299,10 +333,7 @@ class EgretNvrTvConfigFlow(ConfigFlow, domain=DOMAIN):
                 data = await resp.json()
         except (aiohttp.ClientError, TimeoutError) as err:
             _LOGGER.debug("Could not reach TV at %s:%s: %s", self._host, self._port, err)
-            if errors is not None:
-                errors["base"] = ERROR_CANNOT_CONNECT
-                return None  # type: ignore[return-value]
-            return self.async_abort(reason=ERROR_CANNOT_CONNECT)
+            return {"base": ERROR_CANNOT_CONNECT}
 
         self._device_id = str(data.get(CONF_DEVICE_ID) or f"{self._host}:{self._port}")
         self._device_name = str(data.get(CONF_DEVICE_NAME) or self._device_name or self._host)
@@ -312,7 +343,7 @@ class EgretNvrTvConfigFlow(ConfigFlow, domain=DOMAIN):
             updates={CONF_HOST: self._host, CONF_PORT: self._port}
         )
 
-        return await self.async_step_pin()
+        return {}
 
     async def async_step_pin(
         self, user_input: dict[str, Any] | None = None

@@ -8,13 +8,7 @@
           "mqtt_topic_prefix": "Frigate MQTT topic prefix (leave default unless you changed it in Frigate's own config)",
           "subscribe_to_frigate_events": "Subscribe to Frigate events (leave unchecked if a \"Notifications for Android TV\" blueprint already pushes to this TV — enabling both shows every event twice)",
           "register_companion_app": "Register as a Home Assistant companion app (lets it show up as a notify target in blueprints)",
-          "companion_device_name": "Companion app device name (only used if registering above)",
-          "alert_position": "Alert position on screen",
-          "alert_size": "Alert text/image size",
-          "alert_duration_seconds": "Alert duration (seconds)",
-          "play_clips_inline": "Play video clips inline in the alert popup (instead of full-screen)",
-          "save_all_notifications": "Save every notification to history (not just ones with a stable event ID)",
-          "history_size": "Notification history size to keep"
+          "companion_device_name": "Companion app device name (only used if registering above)"
         }
       },
       "user": {
@@ -26,7 +20,13 @@
           "mqtt_topic_prefix": "Frigate MQTT topic prefix (leave default unless you changed it in Frigate's own config)",
           "subscribe_to_frigate_events": "Subscribe to Frigate events (leave unchecked if a \"Notifications for Android TV\" blueprint already pushes to this TV or you plan on using the companion app support for notification — enabling both shows every event twice)",
           "register_companion_app": "Register as a Home Assistant companion app (lets it show up as a notify target in blueprints)",
-          "companion_device_name": "Companion app device name (only used if registering above)",
+          "companion_device_name": "Companion app device name (only used if registering above)"
+        }
+      },
+      "alert_settings": {
+        "title": "Alert appearance & history",
+        "description": "How alerts should look on \"{name}\", and how much notification history to keep.",
+        "data": {
           "alert_position": "Alert position on screen",
           "alert_size": "Alert text/image size",
           "alert_duration_seconds": "Alert duration (seconds)",
