@@ -24,11 +24,17 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 
-from .const import CONF_WEBHOOK_ID, DOMAIN, KNOWN_DIAGNOSTIC_FIELDS, signal_update
+from .const import (
+    ATTR_LOCKED,
+    CONF_WEBHOOK_ID,
+    DOMAIN,
+    KNOWN_DIAGNOSTIC_FIELDS,
+    signal_update,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = [Platform.BINARY_SENSOR, Platform.SENSOR]
+PLATFORMS = [Platform.BINARY_SENSOR, Platform.SENSOR, Platform.SWITCH]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -44,10 +50,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             webhook_id,
             partial(_handle_webhook, entry_id=entry.entry_id),
             # The TV only ever learns this webhook_id over the local pairing exchange, and
-            # only ever POSTs to it while on the same network as this Home Assistant instance
+            # only ever calls it while on the same network as this Home Assistant instance
             # (same constraint the pairing flow itself already has) — no reason to accept it
-            # through a remote/cloud path.
+            # through a remote/cloud path. GET is for the TV reconciling the lock switch's
+            # current state (see switch.py); POST is the existing diagnostics ingestion below.
             local_only=True,
+            allowed_methods=["GET", "POST"],
         )
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -69,14 +77,19 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 async def _handle_webhook(
     hass: HomeAssistant, webhook_id: str, request: web.Request, entry_id: str
 ) -> web.Response:
-    """Receive a diagnostic-status push from a paired TV.
-
-    Every field is optional and merged into this entry's currently-known values — the TV
-    sends small, targeted updates (a new notification, a connection status change, ...)
-    rather than resending its full state every time. Unknown keys are ignored rather than
-    rejected, so an older-paired TV posting a field this version doesn't know about yet
-    doesn't fail the whole request.
+    """Receive a diagnostic-status push from a paired TV (POST), or answer the TV's own
+    reconciling lookup of the current locked-configuration state (GET) — see switch.py's own
+    doc comment for why that state needs a pull path in addition to its live push.
     """
+    if request.method == "GET":
+        values = hass.data.setdefault(DOMAIN, {}).setdefault(entry_id, {})
+        return web.json_response({ATTR_LOCKED: values.get(ATTR_LOCKED, False)})
+
+    # Every field is optional and merged into this entry's currently-known values — the TV
+    # sends small, targeted updates (a new notification, a connection status change, ...)
+    # rather than resending its full state every time. Unknown keys are ignored rather than
+    # rejected, so an older-paired TV posting a field this version doesn't know about yet
+    # doesn't fail the whole request.
     try:
         payload = await request.json()
     except ValueError:

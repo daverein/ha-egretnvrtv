@@ -89,6 +89,12 @@ ATTR_FRIGATE_CONNECTED = "frigate_connected"
 ATTR_OVERLAY_PERMISSION_GRANTED = "overlay_permission_granted"
 ATTR_NOTIFICATION_SERVER_RUNNING = "notification_server_running"
 
+# Not a TV->HA diagnostic field like the ones above (this one flows the other way, HA->TV —
+# see switch.py) — kept as its own constant rather than folded into KNOWN_DIAGNOSTIC_FIELDS so
+# a POST from the TV can never accidentally set it, and so __init__.py's webhook GET handler
+# has a single shared name to read it back by.
+ATTR_LOCKED = "locked"
+
 KNOWN_DIAGNOSTIC_FIELDS = (
     ATTR_LAST_NOTIFICATION_AT,
     ATTR_LAST_NOTIFICATION_TITLE,
@@ -112,6 +118,9 @@ def signal_update(entry_id: str) -> str:
 # network — see that file's own doc comment for the two-step start/complete exchange.
 PAIR_START_PATH = "/ha_pair/start"
 PAIR_COMPLETE_PATH = "/ha_pair/complete"
+
+# TV-side route the lock switch pushes its state to for an immediate effect — see switch.py.
+LOCK_CONFIG_PATH = "/ha_lock_config"
 
 REQUEST_TIMEOUT_SECONDS = 10
 
